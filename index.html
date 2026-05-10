@@ -45,14 +45,18 @@
               <div class="control-heading">
                 <span>部分選択</span>
               </div>
-              <div class="segmented" role="radiogroup" aria-label="部分選択">
+              <div class="segmented three" role="radiogroup" aria-label="部分選択">
                 <label>
                   <input type="radio" name="pickMode" value="off" checked />
                   通常
                 </label>
                 <label>
                   <input type="radio" name="pickMode" value="remove" />
-                  選択
+                  透過
+                </label>
+                <label>
+                  <input type="radio" name="pickMode" value="restore" />
+                  背景戻す
                 </label>
               </div>
             </div>
@@ -64,7 +68,7 @@
               </div>
               <input id="selectionRadius" type="range" min="12" max="260" value="80" />
               <div class="tool-row">
-                <button id="undoPickButton" class="button small" type="button" disabled>戻す</button>
+                <button id="undoPickButton" class="button small" type="button" disabled>1つ戻す</button>
                 <button id="clearPickButton" class="button small" type="button" disabled>選択解除</button>
               </div>
             </div>
@@ -101,7 +105,6 @@
               </div>
             </div>
 
-            <button id="restoreBackgroundButton" class="button full" type="button" disabled>背景を戻す</button>
             <button id="resetButton" class="button full" type="button" disabled>調整を戻す</button>
           </aside>
 

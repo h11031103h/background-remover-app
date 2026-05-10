@@ -197,6 +197,10 @@ input[type="range"] {
   background: #fff;
 }
 
+.segmented.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .segmented label {
   min-height: 34px;
   border-radius: 5px;

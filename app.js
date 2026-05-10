@@ -1,7 +1,6 @@
 const imageInput = document.querySelector("#imageInput");
 const downloadButton = document.querySelector("#downloadButton");
 const resetButton = document.querySelector("#resetButton");
-const restoreBackgroundButton = document.querySelector("#restoreBackgroundButton");
 const toleranceInput = document.querySelector("#tolerance");
 const featherInput = document.querySelector("#feather");
 const selectionRadiusInput = document.querySelector("#selectionRadius");
@@ -21,13 +20,13 @@ let sourceCanvas = null;
 let sourceImageData = null;
 let resultImageData = null;
 let manualMask = null;
+let restoreMask = null;
 let manualHistory = [];
 let sourceName = "transparent-background.png";
 let renderTimer = null;
 let isSelecting = false;
 let selectionChanged = false;
 let lastSelectionAt = 0;
-let transparencyEnabled = true;
 
 const defaults = {
   tolerance: 42,
@@ -36,7 +35,6 @@ const defaults = {
   sampleMode: "auto",
   viewMode: "result",
   pickMode: "off",
-  transparencyEnabled: true,
 };
 
 function setStatus(message, isWarning = false) {
@@ -60,15 +58,16 @@ function setSelected(name, value) {
 }
 
 function hasManualMask() {
-  return manualMask ? manualMask.some((value) => value > 0) : false;
+  return !!(
+    manualMask &&
+    (manualMask.some((value) => value > 0) || restoreMask.some((value) => value > 0))
+  );
 }
 
 function updateManualButtons() {
   undoPickButton.disabled = manualHistory.length === 0;
   clearPickButton.disabled = !hasManualMask();
-  restoreBackgroundButton.disabled = !sourceImageData;
-  restoreBackgroundButton.textContent = transparencyEnabled ? "背景を戻す" : "背景を透過";
-  dropZone.classList.toggle("pick-active", getSelected("pickMode") === "remove" && !!sourceImageData);
+  dropZone.classList.toggle("pick-active", getSelected("pickMode") !== "off" && !!sourceImageData);
 }
 
 function scheduleRender() {
@@ -103,8 +102,8 @@ async function loadImage(file) {
   sourceCtx.drawImage(bitmap, 0, 0, size.width, size.height);
   sourceImageData = sourceCtx.getImageData(0, 0, size.width, size.height);
   manualMask = new Uint8Array(size.width * size.height);
+  restoreMask = new Uint8Array(size.width * size.height);
   manualHistory = [];
-  transparencyEnabled = true;
   sourceName = file.name.replace(/\.[^.]+$/, "") + "-transparent.png";
   canvas.width = size.width;
   canvas.height = size.height;
@@ -235,6 +234,14 @@ function addMask(target, source) {
   return target;
 }
 
+function applyRestoreMask(target, source) {
+  if (!source) return target;
+  for (let i = 0; i < target.length; i++) {
+    if (source[i] > 0) target[i] = Math.min(target[i], 255 - source[i]);
+  }
+  return target;
+}
+
 function featherMask(mask, width, height, radius) {
   if (radius <= 0) return mask;
   const output = new Uint8Array(mask);
@@ -274,14 +281,17 @@ function getCanvasPoint(event) {
 }
 
 function pushManualHistory() {
-  if (!manualMask) return;
-  manualHistory.push(new Uint8Array(manualMask));
+  if (!manualMask || !restoreMask) return;
+  manualHistory.push({
+    manualMask: new Uint8Array(manualMask),
+    restoreMask: new Uint8Array(restoreMask),
+  });
   if (manualHistory.length > MAX_MANUAL_HISTORY) manualHistory.shift();
   updateManualButtons();
 }
 
-function addPickedArea(seedX, seedY) {
-  if (!sourceImageData || !manualMask) return 0;
+function editPickedArea(seedX, seedY, mode) {
+  if (!sourceImageData || !manualMask || !restoreMask) return 0;
   const { data, width, height } = sourceImageData;
   const seedColor = colorAt(data, width, seedX, seedY);
   const tolerance = Number(toleranceInput.value);
@@ -296,9 +306,12 @@ function addPickedArea(seedX, seedY) {
 
   function trySet(index, distance, full) {
     const strength = full ? 255 : Math.round(255 * (1 - (distance - tolerance) / 18));
-    if (strength > manualMask[index]) {
-      if (manualMask[index] === 0) changed += 1;
-      manualMask[index] = strength;
+    const targetMask = mode === "restore" ? restoreMask : manualMask;
+    const otherMask = mode === "restore" ? manualMask : restoreMask;
+    if (strength > targetMask[index] || otherMask[index] > 0) {
+      if (targetMask[index] === 0 && otherMask[index] === 0) changed += 1;
+      targetMask[index] = Math.max(targetMask[index], strength);
+      otherMask[index] = 0;
     }
   }
 
@@ -351,18 +364,10 @@ function processImage() {
     return;
   }
 
-  if (!transparencyEnabled) {
-    resultImageData = new ImageData(new Uint8ClampedArray(sourceImageData.data), sourceImageData.width, sourceImageData.height);
-    ctx.putImageData(resultImageData, 0, 0);
-    setStatus("背景を戻しています。PNG保存にも元背景が反映されます。");
-    updateManualButtons();
-    return;
-  }
-
   setStatus("背景を透過しています。");
   const { width, height, data } = sourceImageData;
   const combinedMask = addMask(buildBackgroundMask(sourceImageData, tolerance, sampleMode), manualMask);
-  const mask = featherMask(combinedMask, width, height, feather);
+  const mask = applyRestoreMask(featherMask(combinedMask, width, height, feather), restoreMask);
   const output = new ImageData(new Uint8ClampedArray(data), width, height);
 
   for (let i = 0; i < mask.length; i++) {
@@ -403,22 +408,17 @@ function resetControls() {
   setSelected("sampleMode", defaults.sampleMode);
   setSelected("viewMode", defaults.viewMode);
   setSelected("pickMode", defaults.pickMode);
-  transparencyEnabled = defaults.transparencyEnabled;
   if (manualMask) manualMask.fill(0);
+  if (restoreMask) restoreMask.fill(0);
   manualHistory = [];
   scheduleRender();
 }
 
-function toggleBackgroundRestore() {
-  if (!sourceImageData) return;
-  transparencyEnabled = !transparencyEnabled;
-  setSelected("viewMode", "result");
-  processImage();
-}
-
 function undoPick() {
   if (!manualMask || manualHistory.length === 0) return;
-  manualMask = manualHistory.pop();
+  const previous = manualHistory.pop();
+  manualMask = previous.manualMask;
+  restoreMask = previous.restoreMask;
   setSelected("viewMode", "result");
   processImage();
 }
@@ -427,6 +427,7 @@ function clearPicks() {
   if (!manualMask || !hasManualMask()) return;
   pushManualHistory();
   manualMask.fill(0);
+  restoreMask.fill(0);
   setSelected("viewMode", "result");
   processImage();
 }
@@ -434,7 +435,9 @@ function clearPicks() {
 function applyManualSelection(event, immediate = false) {
   const point = getCanvasPoint(event);
   if (!point) return;
-  const changed = addPickedArea(point.x, point.y);
+  const mode = getSelected("pickMode");
+  if (mode === "off") return;
+  const changed = editPickedArea(point.x, point.y, mode);
   if (changed === 0) return;
 
   selectionChanged = true;
@@ -442,7 +445,7 @@ function applyManualSelection(event, immediate = false) {
   updateManualButtons();
   if (immediate) {
     processImage();
-    setStatus(`選択部分を追加で透過しました。`);
+    setStatus(mode === "restore" ? "選択部分の背景を戻しました。" : "選択部分を追加で透過しました。");
   } else {
     scheduleRender();
   }
@@ -456,7 +459,6 @@ imageInput.addEventListener("change", (event) => {
 
 downloadButton.addEventListener("click", downloadResult);
 resetButton.addEventListener("click", resetControls);
-restoreBackgroundButton.addEventListener("click", toggleBackgroundRestore);
 undoPickButton.addEventListener("click", undoPick);
 clearPickButton.addEventListener("click", clearPicks);
 toleranceInput.addEventListener("input", scheduleRender);
@@ -467,7 +469,7 @@ document.querySelectorAll('input[name="sampleMode"], input[name="viewMode"], inp
 });
 
 canvas.addEventListener("pointerdown", (event) => {
-  if (getSelected("pickMode") !== "remove" || !sourceImageData) return;
+  if (getSelected("pickMode") === "off" || !sourceImageData) return;
   event.preventDefault();
   canvas.setPointerCapture(event.pointerId);
   pushManualHistory();
