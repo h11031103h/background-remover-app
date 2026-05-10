@@ -16,10 +16,11 @@
           </div>
           <div class="actions">
             <label class="button primary">
-              <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" />
+              <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" multiple />
               画像を選ぶ
             </label>
             <button id="downloadButton" class="button" type="button" disabled>PNG保存</button>
+            <button id="downloadAllButton" class="button" type="button" disabled>全てZIP保存</button>
           </div>
         </div>
 
@@ -117,11 +118,19 @@
               <canvas id="previewCanvas" aria-label="透過プレビュー"></canvas>
             </div>
             <div id="status" class="status" role="status">画像はブラウザ内だけで処理されます。</div>
+            <div id="batchPanel" class="batch-panel" hidden>
+              <div class="batch-nav">
+                <button id="prevImageButton" class="button small" type="button">前へ</button>
+                <div id="batchCounter" class="batch-counter">1 / 1</div>
+                <button id="nextImageButton" class="button small" type="button">次へ</button>
+              </div>
+              <div id="imageList" class="image-list" aria-label="アップロード画像一覧"></div>
+            </div>
           </section>
         </div>
       </section>
     </main>
 
-    <script src="app.js?v=selective-restore-upload-fix"></script>
+    <script src="app.js?v=batch-processing"></script>
   </body>
 </html>

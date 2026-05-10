@@ -227,7 +227,7 @@ input[type="range"] {
   min-width: 0;
   padding: clamp(14px, 2.4vw, 26px);
   display: grid;
-  grid-template-rows: minmax(340px, 1fr) auto;
+  grid-template-rows: minmax(340px, 1fr) auto auto;
   gap: 12px;
 }
 
@@ -319,6 +319,56 @@ canvas {
   color: var(--warn);
 }
 
+.batch-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.batch-nav {
+  display: grid;
+  grid-template-columns: 88px 1fr 88px;
+  align-items: center;
+  gap: 10px;
+}
+
+.batch-counter {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.image-list {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.image-chip {
+  min-width: 138px;
+  max-width: 180px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-chip.is-active {
+  color: #fff;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
 @media (max-width: 760px) {
   .app-shell {
     padding: 10px;
@@ -340,6 +390,15 @@ canvas {
 
   .actions .button {
     flex: 1 1 140px;
+  }
+
+  .batch-nav {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .batch-counter {
+    grid-column: 1 / -1;
+    grid-row: 1;
   }
 
   .controls {

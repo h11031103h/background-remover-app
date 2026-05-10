@@ -1,5 +1,6 @@
 const imageInput = document.querySelector("#imageInput");
 const downloadButton = document.querySelector("#downloadButton");
+const downloadAllButton = document.querySelector("#downloadAllButton");
 const resetButton = document.querySelector("#resetButton");
 const toleranceInput = document.querySelector("#tolerance");
 const featherInput = document.querySelector("#feather");
@@ -9,6 +10,11 @@ const featherValue = document.querySelector("#featherValue");
 const selectionRadiusValue = document.querySelector("#selectionRadiusValue");
 const undoPickButton = document.querySelector("#undoPickButton");
 const clearPickButton = document.querySelector("#clearPickButton");
+const batchPanel = document.querySelector("#batchPanel");
+const batchCounter = document.querySelector("#batchCounter");
+const imageList = document.querySelector("#imageList");
+const prevImageButton = document.querySelector("#prevImageButton");
+const nextImageButton = document.querySelector("#nextImageButton");
 const dropZone = document.querySelector("#dropZone");
 const statusLine = document.querySelector("#status");
 const canvas = document.querySelector("#previewCanvas");
@@ -23,6 +29,8 @@ let manualMask = null;
 let restoreMask = null;
 let manualHistory = [];
 let sourceName = "transparent-background.png";
+let imageItems = [];
+let currentImageIndex = -1;
 let renderTimer = null;
 let isSelecting = false;
 let selectionChanged = false;
@@ -75,9 +83,63 @@ function updateManualButtons() {
   dropZone.classList.toggle("pick-active", getSelected("pickMode") !== "off" && !!sourceImageData);
 }
 
+function updateBatchControls() {
+  const hasImages = imageItems.length > 0;
+  const hasMultiple = imageItems.length > 1;
+  downloadButton.disabled = !hasImages;
+  downloadAllButton.disabled = !hasImages;
+  resetButton.disabled = !hasImages;
+  batchPanel.hidden = !hasImages;
+  prevImageButton.disabled = !hasMultiple || currentImageIndex <= 0;
+  nextImageButton.disabled = !hasMultiple || currentImageIndex >= imageItems.length - 1;
+  batchCounter.textContent = hasImages ? `${currentImageIndex + 1} / ${imageItems.length}` : "0 / 0";
+}
+
+function renderImageList() {
+  imageList.replaceChildren();
+  imageItems.forEach((item, index) => {
+    const button = document.createElement("button");
+    button.className = `image-chip${index === currentImageIndex ? " is-active" : ""}`;
+    button.type = "button";
+    button.textContent = `${index + 1}. ${item.displayName}`;
+    button.title = item.displayName;
+    button.addEventListener("click", () => setActiveImage(index));
+    imageList.append(button);
+  });
+}
+
+function syncCurrentItem() {
+  if (currentImageIndex < 0 || !imageItems[currentImageIndex]) return;
+  const item = imageItems[currentImageIndex];
+  item.resultImageData = resultImageData;
+  item.manualMask = manualMask;
+  item.restoreMask = restoreMask;
+  item.manualHistory = manualHistory;
+}
+
+function setActiveImage(index) {
+  if (!imageItems[index]) return;
+  syncCurrentItem();
+  currentImageIndex = index;
+  const item = imageItems[index];
+  sourceImageData = item.sourceImageData;
+  resultImageData = item.resultImageData;
+  manualMask = item.manualMask;
+  restoreMask = item.restoreMask;
+  manualHistory = item.manualHistory;
+  sourceName = item.outputName;
+  canvas.width = item.width;
+  canvas.height = item.height;
+  dropZone.classList.add("has-image");
+  updateBatchControls();
+  renderImageList();
+  processImage();
+}
+
 function scheduleRender() {
   updateReadouts();
   updateManualButtons();
+  updateBatchControls();
   if (!sourceImageData) return;
   clearTimeout(renderTimer);
   renderTimer = setTimeout(processImage, 70);
@@ -115,13 +177,11 @@ function loadImageElement(file) {
   });
 }
 
-async function loadImage(file) {
+async function createImageItem(file) {
   if (!file || !file.type.startsWith("image/")) {
-    setStatus("画像ファイルを選んでください。", true);
-    return;
+    throw new Error("画像ファイルを選んでください。");
   }
 
-  setStatus("画像を読み込んでいます。");
   const bitmap = await loadBitmapWithFallback(file);
   const size = resizeToFit(bitmap.width, bitmap.height);
   sourceCanvas = document.createElement("canvas");
@@ -129,19 +189,58 @@ async function loadImage(file) {
   sourceCanvas.height = size.height;
   const sourceCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
   sourceCtx.drawImage(bitmap, 0, 0, size.width, size.height);
-  sourceImageData = sourceCtx.getImageData(0, 0, size.width, size.height);
-  manualMask = new Uint8Array(size.width * size.height);
-  restoreMask = new Uint8Array(size.width * size.height);
-  manualHistory = [];
-  sourceName = file.name.replace(/\.[^.]+$/, "") + "-transparent.png";
-  canvas.width = size.width;
-  canvas.height = size.height;
+  const sourceData = sourceCtx.getImageData(0, 0, size.width, size.height);
+  const baseName = file.name.replace(/\.[^.]+$/, "") || "image";
+  return {
+    displayName: file.name,
+    outputName: `${baseName}-transparent.png`,
+    sourceImageData: sourceData,
+    resultImageData: null,
+    manualMask: new Uint8Array(size.width * size.height),
+    restoreMask: new Uint8Array(size.width * size.height),
+    manualHistory: [],
+    width: size.width,
+    height: size.height,
+    scaled: size.scaled,
+  };
+}
+
+async function loadImages(fileList) {
+  const files = Array.from(fileList || []).filter((file) => file.type.startsWith("image/"));
+  if (files.length === 0) {
+    setStatus("画像ファイルを選んでください。", true);
+    return;
+  }
+
+  setStatus(`${files.length}枚の画像を読み込んでいます。`);
+  const loaded = [];
+  const failed = [];
+  for (const file of files) {
+    try {
+      loaded.push(await createImageItem(file));
+    } catch (error) {
+      failed.push(`${file.name}: ${getErrorMessage(error)}`);
+    }
+  }
+
+  if (loaded.length === 0) {
+    setStatus("画像を読み込めませんでした。PNG、JPEG、WebPで試してください。", true);
+    return;
+  }
+
+  imageItems = loaded;
+  currentImageIndex = -1;
   dropZone.classList.add("has-image");
-  downloadButton.disabled = false;
-  resetButton.disabled = false;
-  setStatus(size.scaled ? "大きな画像のため、長辺2800pxに縮小して処理しています。" : "背景を検出しています。");
-  updateManualButtons();
-  processImage();
+  setSelected("viewMode", "result");
+  setActiveImage(0);
+  const scaledCount = loaded.filter((item) => item.scaled).length;
+  if (failed.length > 0) {
+    setStatus(`${loaded.length}枚を読み込みました。${failed.length}枚は読み込めませんでした。`, true);
+  } else if (loaded.length > 1 && scaledCount > 0) {
+    setStatus(`${loaded.length}枚を読み込みました。${scaledCount}枚は長辺2800pxに縮小して処理しています。`);
+  } else if (loaded.length > 1) {
+    setStatus(`${loaded.length}枚を読み込みました。`);
+  }
 }
 
 function colorAt(data, width, x, y) {
@@ -379,24 +478,13 @@ function editPickedArea(seedX, seedY, mode) {
   return changed;
 }
 
-function processImage() {
-  if (!sourceImageData) return;
+function createProcessedImageData(item) {
   const tolerance = Number(toleranceInput.value);
   const feather = Number(featherInput.value);
   const sampleMode = getSelected("sampleMode");
-  const viewMode = getSelected("viewMode");
-
-  if (viewMode === "original") {
-    ctx.putImageData(sourceImageData, 0, 0);
-    setStatus("元画像を表示しています。");
-    updateManualButtons();
-    return;
-  }
-
-  setStatus("背景を透過しています。");
-  const { width, height, data } = sourceImageData;
-  const combinedMask = addMask(buildBackgroundMask(sourceImageData, tolerance, sampleMode), manualMask);
-  const mask = applyRestoreMask(featherMask(combinedMask, width, height, feather), restoreMask);
+  const { width, height, data } = item.sourceImageData;
+  const combinedMask = addMask(buildBackgroundMask(item.sourceImageData, tolerance, sampleMode), item.manualMask);
+  const mask = applyRestoreMask(featherMask(combinedMask, width, height, feather), item.restoreMask);
   const output = new ImageData(new Uint8ClampedArray(data), width, height);
 
   for (let i = 0; i < mask.length; i++) {
@@ -404,22 +492,47 @@ function processImage() {
     output.data[i * 4 + 3] = Math.max(0, Math.round(alpha * (1 - mask[i] / 255)));
   }
 
-  resultImageData = output;
-  ctx.putImageData(output, 0, 0);
   const removed = Math.round((mask.reduce((sum, value) => sum + (value > 0 ? 1 : 0), 0) / mask.length) * 100);
-  setStatus(`背景候補を約${removed}%透過しました。縁が残る場合は背景判定を上げてください。`);
-  updateManualButtons();
+  return { output, removed };
 }
 
-function downloadResult() {
-  if (!sourceImageData) return;
-  clearTimeout(renderTimer);
-  if (getSelected("viewMode") !== "result") {
-    setSelected("viewMode", "result");
+function processImage() {
+  if (!sourceImageData || currentImageIndex < 0) return;
+  syncCurrentItem();
+  const viewMode = getSelected("viewMode");
+  const item = imageItems[currentImageIndex];
+
+  if (viewMode === "original") {
+    ctx.putImageData(sourceImageData, 0, 0);
+    setStatus(`元画像を表示しています。${imageItems.length > 1 ? `（${currentImageIndex + 1}/${imageItems.length}）` : ""}`);
+    updateManualButtons();
+    updateBatchControls();
+    return;
   }
+
+  setStatus("背景を透過しています。");
+  const { output, removed } = createProcessedImageData(item);
+  resultImageData = output;
+  item.resultImageData = output;
+  ctx.putImageData(output, 0, 0);
+  setStatus(`背景候補を約${removed}%透過しました。${imageItems.length > 1 ? `（${currentImageIndex + 1}/${imageItems.length}）` : ""}`);
+  updateManualButtons();
+  updateBatchControls();
+}
+
+function canvasBlob(targetCanvas, type = "image/png") {
+  return new Promise((resolve) => {
+    targetCanvas.toBlob((blob) => resolve(blob), type);
+  });
+}
+
+async function downloadResult() {
+  if (!sourceImageData || currentImageIndex < 0) return;
+  clearTimeout(renderTimer);
+  const previousView = getSelected("viewMode");
+  setSelected("viewMode", "result");
   processImage();
-  ctx.putImageData(resultImageData, 0, 0);
-  canvas.toBlob((blob) => {
+  const blob = await canvasBlob(canvas, "image/png");
     if (!blob) return;
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -427,7 +540,148 @@ function downloadResult() {
     link.download = sourceName;
     link.click();
     URL.revokeObjectURL(url);
-  }, "image/png");
+  if (previousView !== "result") setSelected("viewMode", previousView);
+}
+
+function writeUint16(view, offset, value) {
+  view.setUint16(offset, value, true);
+}
+
+function writeUint32(view, offset, value) {
+  view.setUint32(offset, value, true);
+}
+
+function getCrcTable() {
+  if (getCrcTable.table) return getCrcTable.table;
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    table[i] = c >>> 0;
+  }
+  getCrcTable.table = table;
+  return table;
+}
+
+function crc32(bytes) {
+  const table = getCrcTable();
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function dosDateTime(date) {
+  const year = Math.max(1980, date.getFullYear());
+  const time = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+  const day = ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  return { time, day };
+}
+
+function createZip(files) {
+  const encoder = new TextEncoder();
+  const now = dosDateTime(new Date());
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const data = file.data;
+    const crc = crc32(data);
+    const local = new Uint8Array(30 + nameBytes.length);
+    const localView = new DataView(local.buffer);
+    writeUint32(localView, 0, 0x04034b50);
+    writeUint16(localView, 4, 20);
+    writeUint16(localView, 6, 0);
+    writeUint16(localView, 8, 0);
+    writeUint16(localView, 10, now.time);
+    writeUint16(localView, 12, now.day);
+    writeUint32(localView, 14, crc);
+    writeUint32(localView, 18, data.length);
+    writeUint32(localView, 22, data.length);
+    writeUint16(localView, 26, nameBytes.length);
+    writeUint16(localView, 28, 0);
+    local.set(nameBytes, 30);
+    localParts.push(local, data);
+
+    const central = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(central.buffer);
+    writeUint32(centralView, 0, 0x02014b50);
+    writeUint16(centralView, 4, 20);
+    writeUint16(centralView, 6, 20);
+    writeUint16(centralView, 8, 0);
+    writeUint16(centralView, 10, 0);
+    writeUint16(centralView, 12, now.time);
+    writeUint16(centralView, 14, now.day);
+    writeUint32(centralView, 16, crc);
+    writeUint32(centralView, 20, data.length);
+    writeUint32(centralView, 24, data.length);
+    writeUint16(centralView, 28, nameBytes.length);
+    writeUint16(centralView, 30, 0);
+    writeUint16(centralView, 32, 0);
+    writeUint16(centralView, 34, 0);
+    writeUint16(centralView, 36, 0);
+    writeUint32(centralView, 38, 0);
+    writeUint32(centralView, 42, offset);
+    central.set(nameBytes, 46);
+    centralParts.push(central);
+
+    offset += local.length + data.length;
+  }
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  writeUint32(endView, 0, 0x06054b50);
+  writeUint16(endView, 4, 0);
+  writeUint16(endView, 6, 0);
+  writeUint16(endView, 8, files.length);
+  writeUint16(endView, 10, files.length);
+  writeUint32(endView, 12, centralSize);
+  writeUint32(endView, 16, offset);
+  writeUint16(endView, 20, 0);
+
+  return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+}
+
+async function pngBytesForItem(item) {
+  const { output } = createProcessedImageData(item);
+  const outputCanvas = document.createElement("canvas");
+  outputCanvas.width = item.width;
+  outputCanvas.height = item.height;
+  outputCanvas.getContext("2d").putImageData(output, 0, 0);
+  const blob = await canvasBlob(outputCanvas, "image/png");
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+async function downloadAllResults() {
+  if (imageItems.length === 0) return;
+  clearTimeout(renderTimer);
+  syncCurrentItem();
+  downloadAllButton.disabled = true;
+  setStatus(`${imageItems.length}枚をまとめて処理しています。`);
+  const files = [];
+  for (let i = 0; i < imageItems.length; i++) {
+    setStatus(`${i + 1}/${imageItems.length}枚目を処理しています。`);
+    files.push({
+      name: imageItems[i].outputName,
+      data: await pngBytesForItem(imageItems[i]),
+    });
+  }
+  const zipBlob = createZip(files);
+  const url = URL.createObjectURL(zipBlob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "transparent-images.zip";
+  link.click();
+  URL.revokeObjectURL(url);
+  downloadAllButton.disabled = false;
+  setStatus(`${imageItems.length}枚をZIPにまとめました。`);
+  processImage();
 }
 
 function resetControls() {
@@ -440,6 +694,7 @@ function resetControls() {
   if (manualMask) manualMask.fill(0);
   if (restoreMask) restoreMask.fill(0);
   manualHistory = [];
+  syncCurrentItem();
   scheduleRender();
 }
 
@@ -448,6 +703,7 @@ function undoPick() {
   const previous = manualHistory.pop();
   manualMask = previous.manualMask;
   restoreMask = previous.restoreMask;
+  syncCurrentItem();
   setSelected("viewMode", "result");
   processImage();
 }
@@ -457,6 +713,7 @@ function clearPicks() {
   pushManualHistory();
   manualMask.fill(0);
   restoreMask.fill(0);
+  syncCurrentItem();
   setSelected("viewMode", "result");
   processImage();
 }
@@ -481,7 +738,7 @@ function applyManualSelection(event, immediate = false) {
 }
 
 imageInput.addEventListener("change", (event) => {
-  loadImage(event.target.files[0]).catch(() => {
+  loadImages(event.target.files).catch(() => {
     setStatus("画像を読み込めませんでした。PNG、JPEG、WebPで試してください。", true);
   }).finally(() => {
     imageInput.value = "";
@@ -503,9 +760,12 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 downloadButton.addEventListener("click", downloadResult);
+downloadAllButton.addEventListener("click", downloadAllResults);
 resetButton.addEventListener("click", resetControls);
 undoPickButton.addEventListener("click", undoPick);
 clearPickButton.addEventListener("click", clearPicks);
+prevImageButton.addEventListener("click", () => setActiveImage(currentImageIndex - 1));
+nextImageButton.addEventListener("click", () => setActiveImage(currentImageIndex + 1));
 toleranceInput.addEventListener("input", scheduleRender);
 featherInput.addEventListener("input", scheduleRender);
 selectionRadiusInput.addEventListener("input", updateReadouts);
@@ -557,9 +817,10 @@ dropZone.addEventListener("dragleave", () => {
 dropZone.addEventListener("drop", (event) => {
   event.preventDefault();
   dropZone.classList.remove("is-dragging");
-  loadImage(event.dataTransfer.files[0]).catch(() => {
+  loadImages(event.dataTransfer.files).catch(() => {
     setStatus("画像を読み込めませんでした。別のファイルで試してください。", true);
   });
 });
 
 updateReadouts();
+updateBatchControls();
