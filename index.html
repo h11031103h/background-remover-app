@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>背景透過ツール</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace" aria-label="画像編集ワークスペース">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Background Remover</p>
+            <h1>背景透過ツール</h1>
+          </div>
+          <div class="actions">
+            <label class="button primary">
+              <input id="imageInput" type="file" accept="image/*" />
+              画像を選ぶ
+            </label>
+            <button id="downloadButton" class="button" type="button" disabled>PNG保存</button>
+          </div>
+        </div>
+
+        <div class="editor-grid">
+          <aside class="controls" aria-label="調整">
+            <div class="control-group">
+              <div class="control-heading">
+                <span>背景判定</span>
+                <output id="toleranceValue" for="tolerance">42</output>
+              </div>
+              <input id="tolerance" type="range" min="8" max="100" value="42" />
+            </div>
+
+            <div class="control-group">
+              <div class="control-heading">
+                <span>縁のなじませ</span>
+                <output id="featherValue" for="feather">3</output>
+              </div>
+              <input id="feather" type="range" min="0" max="10" value="3" />
+            </div>
+
+            <div class="control-group">
+              <div class="control-heading">
+                <span>部分選択</span>
+              </div>
+              <div class="segmented" role="radiogroup" aria-label="部分選択">
+                <label>
+                  <input type="radio" name="pickMode" value="off" checked />
+                  通常
+                </label>
+                <label>
+                  <input type="radio" name="pickMode" value="remove" />
+                  選択
+                </label>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <div class="control-heading">
+                <span>選択範囲</span>
+                <output id="selectionRadiusValue" for="selectionRadius">80</output>
+              </div>
+              <input id="selectionRadius" type="range" min="12" max="260" value="80" />
+              <div class="tool-row">
+                <button id="undoPickButton" class="button small" type="button" disabled>戻す</button>
+                <button id="clearPickButton" class="button small" type="button" disabled>選択解除</button>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <div class="control-heading">
+                <span>背景色の拾い方</span>
+              </div>
+              <div class="segmented" role="radiogroup" aria-label="背景色の拾い方">
+                <label>
+                  <input type="radio" name="sampleMode" value="auto" checked />
+                  自動
+                </label>
+                <label>
+                  <input type="radio" name="sampleMode" value="corner" />
+                  四隅
+                </label>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <div class="control-heading">
+                <span>表示</span>
+              </div>
+              <div class="segmented" role="radiogroup" aria-label="表示モード">
+                <label>
+                  <input type="radio" name="viewMode" value="result" checked />
+                  結果
+                </label>
+                <label>
+                  <input type="radio" name="viewMode" value="original" />
+                  元画像
+                </label>
+              </div>
+            </div>
+
+            <button id="resetButton" class="button full" type="button" disabled>調整を戻す</button>
+          </aside>
+
+          <section class="canvas-panel" aria-label="プレビュー">
+            <div id="dropZone" class="drop-zone">
+              <div class="empty-state">
+                <span class="upload-mark" aria-hidden="true">+</span>
+                <p>画像をドラッグ、または「画像を選ぶ」からアップロード</p>
+              </div>
+              <canvas id="previewCanvas" aria-label="透過プレビュー"></canvas>
+            </div>
+            <div id="status" class="status" role="status">画像はブラウザ内だけで処理されます。</div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
