@@ -1,6 +1,7 @@
 const imageInput = document.querySelector("#imageInput");
 const downloadButton = document.querySelector("#downloadButton");
 const resetButton = document.querySelector("#resetButton");
+const restoreBackgroundButton = document.querySelector("#restoreBackgroundButton");
 const toleranceInput = document.querySelector("#tolerance");
 const featherInput = document.querySelector("#feather");
 const selectionRadiusInput = document.querySelector("#selectionRadius");
@@ -26,6 +27,7 @@ let renderTimer = null;
 let isSelecting = false;
 let selectionChanged = false;
 let lastSelectionAt = 0;
+let transparencyEnabled = true;
 
 const defaults = {
   tolerance: 42,
@@ -34,6 +36,7 @@ const defaults = {
   sampleMode: "auto",
   viewMode: "result",
   pickMode: "off",
+  transparencyEnabled: true,
 };
 
 function setStatus(message, isWarning = false) {
@@ -63,6 +66,8 @@ function hasManualMask() {
 function updateManualButtons() {
   undoPickButton.disabled = manualHistory.length === 0;
   clearPickButton.disabled = !hasManualMask();
+  restoreBackgroundButton.disabled = !sourceImageData;
+  restoreBackgroundButton.textContent = transparencyEnabled ? "背景を戻す" : "背景を透過";
   dropZone.classList.toggle("pick-active", getSelected("pickMode") === "remove" && !!sourceImageData);
 }
 
@@ -99,6 +104,7 @@ async function loadImage(file) {
   sourceImageData = sourceCtx.getImageData(0, 0, size.width, size.height);
   manualMask = new Uint8Array(size.width * size.height);
   manualHistory = [];
+  transparencyEnabled = true;
   sourceName = file.name.replace(/\.[^.]+$/, "") + "-transparent.png";
   canvas.width = size.width;
   canvas.height = size.height;
@@ -341,6 +347,15 @@ function processImage() {
   if (viewMode === "original") {
     ctx.putImageData(sourceImageData, 0, 0);
     setStatus("元画像を表示しています。");
+    updateManualButtons();
+    return;
+  }
+
+  if (!transparencyEnabled) {
+    resultImageData = new ImageData(new Uint8ClampedArray(sourceImageData.data), sourceImageData.width, sourceImageData.height);
+    ctx.putImageData(resultImageData, 0, 0);
+    setStatus("背景を戻しています。PNG保存にも元背景が反映されます。");
+    updateManualButtons();
     return;
   }
 
@@ -388,9 +403,17 @@ function resetControls() {
   setSelected("sampleMode", defaults.sampleMode);
   setSelected("viewMode", defaults.viewMode);
   setSelected("pickMode", defaults.pickMode);
+  transparencyEnabled = defaults.transparencyEnabled;
   if (manualMask) manualMask.fill(0);
   manualHistory = [];
   scheduleRender();
+}
+
+function toggleBackgroundRestore() {
+  if (!sourceImageData) return;
+  transparencyEnabled = !transparencyEnabled;
+  setSelected("viewMode", "result");
+  processImage();
 }
 
 function undoPick() {
@@ -433,6 +456,7 @@ imageInput.addEventListener("change", (event) => {
 
 downloadButton.addEventListener("click", downloadResult);
 resetButton.addEventListener("click", resetControls);
+restoreBackgroundButton.addEventListener("click", toggleBackgroundRestore);
 undoPickButton.addEventListener("click", undoPick);
 clearPickButton.addEventListener("click", clearPicks);
 toleranceInput.addEventListener("input", scheduleRender);
