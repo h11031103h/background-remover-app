@@ -37,6 +37,11 @@ const defaults = {
   pickMode: "off",
 };
 
+function getErrorMessage(error) {
+  if (error && typeof error.message === "string") return error.message;
+  return "unknown error";
+}
+
 function setStatus(message, isWarning = false) {
   statusLine.textContent = message;
   statusLine.classList.toggle("warning", isWarning);
@@ -87,13 +92,37 @@ function resizeToFit(width, height) {
   };
 }
 
+function loadBitmapWithFallback(file) {
+  if (window.createImageBitmap) {
+    return createImageBitmap(file).catch(() => loadImageElement(file));
+  }
+  return loadImageElement(file);
+}
+
+function loadImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const url = URL.createObjectURL(file);
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("この画像形式をブラウザで読み込めませんでした。PNG、JPEG、WebPで試してください。"));
+    };
+    image.src = url;
+  });
+}
+
 async function loadImage(file) {
   if (!file || !file.type.startsWith("image/")) {
     setStatus("画像ファイルを選んでください。", true);
     return;
   }
 
-  const bitmap = await createImageBitmap(file);
+  setStatus("画像を読み込んでいます。");
+  const bitmap = await loadBitmapWithFallback(file);
   const size = resizeToFit(bitmap.width, bitmap.height);
   sourceCanvas = document.createElement("canvas");
   sourceCanvas.width = size.width;
@@ -453,8 +482,24 @@ function applyManualSelection(event, immediate = false) {
 
 imageInput.addEventListener("change", (event) => {
   loadImage(event.target.files[0]).catch(() => {
-    setStatus("画像を読み込めませんでした。別のファイルで試してください。", true);
+    setStatus("画像を読み込めませんでした。PNG、JPEG、WebPで試してください。", true);
+  }).finally(() => {
+    imageInput.value = "";
   });
+});
+
+imageInput.addEventListener("click", () => {
+  imageInput.value = "";
+});
+
+window.addEventListener("error", (event) => {
+  if (sourceImageData) return;
+  setStatus(`アプリ初期化でエラーが出ています: ${event.message}`, true);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  if (sourceImageData) return;
+  setStatus(`画像処理でエラーが出ています: ${getErrorMessage(event.reason)}`, true);
 });
 
 downloadButton.addEventListener("click", downloadResult);
